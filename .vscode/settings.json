@@ -1,0 +1,13 @@
+{
+    "chat.hookFilesLocations": {
+        ".github/hooks": true,
+        ".claude/settings.local.json": true,
+        ".claude/settings.json": true,
+        "~/.copilot/hooks": true,
+        "~/.claude/settings.json": true,
+        ".agents/hooks": true
+    },
+    "chat.tools.terminal.autoApprove": {
+        "git remote": true
+    }
+}

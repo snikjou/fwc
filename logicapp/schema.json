@@ -1,0 +1,203 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgreementExtraction",
+  "description": "Schema describing the data structure produced by agreement extraction (mirrors logicapp/format.json).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "Contract type (e.g., New, Amendment)."
+    },
+    "contract_number": {
+      "type": "string",
+      "description": "Unique contract identifier."
+    },
+    "contract_manager": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "date": {
+      "type": "string",
+      "description": "Document date (e.g., MM/DD/YYYY)."
+    },
+    "division_office": {
+      "type": "string",
+      "description": "Division or office code."
+    },
+    "financial_type": {
+      "type": "string",
+      "description": "Financial classification (e.g., Financial, Non-Financial)."
+    },
+    "procurement_method": {
+      "type": "string",
+      "description": "Procurement method code/description."
+    },
+    "project_title": {
+      "type": "string",
+      "description": "Title of the project or agreement."
+    },
+    "original_contract_amount": {
+      "type": ["string", "number", "null"],
+      "description": "Original contract amount (string with currency or number)."
+    },
+    "increase_amount": {
+      "type": ["string", "number", "null"]
+    },
+    "decrease_amount": {
+      "type": ["string", "number", "null"]
+    },
+    "revised_contract_amount": {
+      "type": ["string", "number", "null"]
+    },
+    "contract_begin_date": {
+      "type": ["string", "null"],
+      "description": "Contract start date or descriptor (e.g., DOE)."
+    },
+    "original_end_date": {
+      "type": ["string", "null"],
+      "description": "Original end date or descriptor (e.g., 'until terminated')."
+    },
+    "new_end_date": {
+      "type": ["string", "null"]
+    },
+    "vendor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "phone": { "type": ["string", "null"] },
+        "contact_name": { "type": ["string", "null"] }
+      },
+      "required": ["name"]
+    },
+    "cost_price_analysis_required": {
+      "type": "string",
+      "enum": ["Yes", "No"]
+    },
+    "risk_assessment_required": {
+      "type": "string",
+      "enum": ["Yes", "No"]
+    },
+    "signatures": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "division_director": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": ["string", "null"] },
+            "date": { "type": ["string", "null"] }
+          }
+        },
+        "cio": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": { "type": ["string", "null"] },
+            "date": { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
+    "legal_signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": ["string", "null"] }
+      }
+    },
+    "execution_dates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "date_sent_to_vendor": { "type": ["string", "null"] },
+        "date_received_from_vendor": { "type": ["string", "null"] }
+      }
+    },
+    "executive_director_signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": ["string", "null"] },
+        "execution_date": { "type": ["string", "null"] }
+      }
+    },
+    "dataSharingPresent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Indicator/value describing whether data sharing is present."
+        }
+      },
+      "required": ["type"]
+    },
+    "dataTypes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Type/category of data referenced in the agreement."
+        }
+      },
+      "required": ["type"]
+    },
+    "dataCategorySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "High-level data category summary (e.g., Wildlife)."
+        }
+      },
+      "required": ["type"]
+    },
+    "dataClassificationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Data classification (e.g., Public, Confidential, Restricted)."
+        },
+        "exactQuotedText": {
+          "type": "string",
+          "description": "Exact quoted text from the agreement supporting the classification."
+        }
+      },
+      "required": ["type"]
+    },
+    "dataSharingPages": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": ["integer", "string"],
+          "description": "Page number(s) where data sharing language appears."
+        },
+        "reference": {
+          "type": "string",
+          "description": "Short reference describing the data sharing context."
+        }
+      },
+      "required": ["type"]
+    }
+  },
+  "required": [
+    "type",
+    "contract_number",
+    "contract_manager",
+    "date",
+    "project_title",
+    "vendor"
+  ]
+}

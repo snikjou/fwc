@@ -1,0 +1,57 @@
+{
+  "id": "@{coalesce(body('Parse_JSON')?['contract_number'], guid())}",
+  "type": "@{body('Parse_JSON')?['type']}",
+  "contract_number": "@{body('Parse_JSON')?['contract_number']}",
+  "contract_manager": {
+    "name": "@{body('Parse_JSON')?['contract_manager']?['name']}"
+  },
+  "date": "@{body('Parse_JSON')?['date']}",
+  "division_office": "@{body('Parse_JSON')?['division_office']}",
+  "financial_type": "@{body('Parse_JSON')?['financial_type']}",
+  "procurement_method": "@{body('Parse_JSON')?['procurement_method']}",
+  "project_title": "@{body('Parse_JSON')?['project_title']}",
+  "original_contract_amount": "@{body('Parse_JSON')?['original_contract_amount']}",
+  "increase_amount": "@{body('Parse_JSON')?['increase_amount']}",
+  "decrease_amount": "@{body('Parse_JSON')?['decrease_amount']}",
+  "revised_contract_amount": "@{body('Parse_JSON')?['revised_contract_amount']}",
+  "contract_begin_date": "@{body('Parse_JSON')?['contract_begin_date']}",
+  "original_end_date": "@{body('Parse_JSON')?['original_end_date']}",
+  "new_end_date": "@{body('Parse_JSON')?['new_end_date']}",
+  "vendor": {
+    "name": "@{body('Parse_JSON')?['vendor']?['name']}",
+    "phone": "@{body('Parse_JSON')?['vendor']?['phone']}",
+    "contact_name": "@{body('Parse_JSON')?['vendor']?['contact_name']}"
+  },
+  "cost_price_analysis_required": "@{body('Parse_JSON')?['cost_price_analysis_required']}",
+  "risk_assessment_required": "@{body('Parse_JSON')?['risk_assessment_required']}",
+  "signatures": {
+    "division_director": {
+      "name": "@{body('Parse_JSON')?['signatures']?['division_director']?['name']}",
+      "date": "@{body('Parse_JSON')?['signatures']?['division_director']?['date']}"
+    },
+    "cio": {
+      "name": "@{body('Parse_JSON')?['signatures']?['cio']?['name']}",
+      "date": "@{body('Parse_JSON')?['signatures']?['cio']?['date']}"
+    }
+  },
+  "legal_signature": {
+    "name": "@{body('Parse_JSON')?['legal_signature']?['name']}"
+  },
+  "execution_dates": {
+    "date_sent_to_vendor": "@{body('Parse_JSON')?['execution_dates']?['date_sent_to_vendor']}",
+    "date_received_from_vendor": "@{body('Parse_JSON')?['execution_dates']?['date_received_from_vendor']}"
+  },
+  "executive_director_signature": {
+    "name": "@{body('Parse_JSON')?['executive_director_signature']?['name']}",
+    "execution_date": "@{body('Parse_JSON')?['executive_director_signature']?['execution_date']}"
+  },
+  "dataSharingPresent": "@{body('Parse_JSON')?['dataSharingPresent']?['type']}",
+  "dataTypes": "@{body('Parse_JSON')?['dataTypes']?['type']}",
+  "dataCategorySummary": "@{body('Parse_JSON')?['dataCategorySummary']?['type']}",
+  "dataClassificationSummary": "@{body('Parse_JSON')?['dataClassificationSummary']?['type']}",
+  "dataClassificationQuotedText": "@{body('Parse_JSON')?['dataClassificationSummary']?['exactQuotedText']}",
+  "dataSharingPages": "@{body('Parse_JSON')?['dataSharingPages']?['type']}",
+  "dataSharingReference": "@{body('Parse_JSON')?['dataSharingPages']?['reference']}",
+  "sourceBlob": "@{triggerBody()?['name']}",
+  "processedAt": "@{utcNow()}"
+}

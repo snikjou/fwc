@@ -1,0 +1,576 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "actions": {
+            "Read_blob_content_1": {
+                "type": "ServiceProvider",
+                "inputs": {
+                    "parameters": {
+                        "containerName": "@parameters('Blob_Path_agreements')",
+                        "blobName": "@triggerBody()?['name']"
+                    },
+                    "serviceProviderConfiguration": {
+                        "connectionName": "AzureBlob",
+                        "operationId": "readBlob",
+                        "serviceProviderId": "/serviceProviders/AzureBlob"
+                    }
+                },
+                "runAfter": {}
+            },
+            "Analyze_Document_for_Prebuilt_or_Custom_models_(v4.x_API)": {
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "referenceName": "formrecognizer"
+                        }
+                    },
+                    "method": "post",
+                    "body": "@body('Read_blob_content_1')?['content']",
+                    "path": "/connectorinternaldocumentintelligence/documentModels/@{encodeURIComponent('prebuilt-read')}:analyze",
+                    "queries": {
+                        "api-version": "2024-11-30"
+                    }
+                },
+                "runAfter": {
+                    "Read_blob_content_1": [
+                        "SUCCEEDED"
+                    ]
+                }
+            },
+            "Chunk_text": {
+                "type": "ChunkText",
+                "inputs": {
+                    "chunkingStrategy": "TokenSize",
+                    "text": "@body('Analyze_Document_for_Prebuilt_or_Custom_models_(v4.x_API)')?['analyzeResult']?['content']",
+                    "EncodingModel": "cl100k_base",
+                    "TokenSize": 10000,
+                    "PageOverlapLength": 0
+                },
+                "runAfter": {
+                    "Analyze_Document_for_Prebuilt_or_Custom_models_(v4.x_API)": [
+                        "SUCCEEDED"
+                    ]
+                }
+            },
+            "Agent_Agreements": {
+                "type": "Agent",
+                "inputs": {
+                    "parameters": {
+                        "deploymentId": "gpt-4.1",
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are a data classification assistant.\nExtract this information from the Chunk text output\n-----\nExpected output example:\n{\n  \"type\": \"New\",\n  \"contract_number\": \"24305\",\n  \"contract_manager\": {\n    \"name\": \"Sean Singletary\"\n  },\n  \"date\": \"05/23/2025\",\n  \"division_office\": \"LE\",\n  \"financial_type\": \"Non-Financial\",\n  \"procurement_method\": \"33-No Cost Procurement\",\n  \"project_title\": \"Lead Contract Agreement for Interagency Information Sharing Of Vendor Personnel Security Screening Requirements\",\n  \"original_contract_amount\": \"$0\",\n  \"increase_amount\": null,\n  \"decrease_amount\": null,\n  \"revised_contract_amount\": null,\n  \"contract_begin_date\": \"DOE\",\n  \"original_end_date\": \"until terminated\",\n  \"new_end_date\": null,\n  \"vendor\": {\n    \"name\": \"Panama City Beach Police Dept.\",\n    \"phone\": \"(850) 233-5000\",\n    \"contact_name\": \"Capt. Jason Jones\"\n  },\n  \"cost_price_analysis_required\": \"Yes\",\n  \"risk_assessment_required\": \"No\",\n  \"signatures\": {\n    \"division_director\": {\n      \"name\": \"Randy Bowlin\",\n      \"date\": \"06/02/2025\"\n    },\n    \"cio\": {\n      \"name\": \"Mike Turner\",\n      \"date\": \"6/12/2025\"\n    }\n  },\n  \"legal_signature\": {\n    \"name\": \"Bridget McDonnell\"\n  },\n  \"execution_dates\": {\n    \"date_sent_to_vendor\": \"6/16/2025\",\n    \"date_received_from_vendor\": \"7/1/2025\"\n  },\n  \"executive_director_signature\": {\n    \"name\": \"Jessica Crawford\",\n    \"execution_date\": \"6/13/2025\"\n  },\n  \"dataSharingPresent\": {\n    \"type\": \"No\"\n  },\n  \"dataTypes\": {\n    \"type\": \"\"\n  },\n  \"dataCategorySummary\": {\n    \"type\": \"\"\n  },\n  \"dataClassificationSummary\": {\n    \"type\": \"\",\n    \"exactQuotedText\": \"\"\n  },\n  \"dataSharingPages\": {\n    \"type\": \"\",\n    \"reference\": \"\"\n  }\n}\n-----------------------------------\nUse the Read Chunk text output\n-----------\nAnalyze agreements and identify referenced data using the provided glossary. Follow these rules:\n\n1. Match data types strictly based on explicit wording in the text (no assumptions).\n2. Map each match to:\n   - Data Type\n   - Data Category\n   - Data Classification\n3. Allow multiple matches; separate values with semicolons.\n4. If both Confidential and Restricted data are present, mark overall sensitivity as Restricted.\n5. If no data sharing is mentioned, set dataSharingPresent.type = No and leave other fields as empty strings.\n6. Always include exact verbatim quotes as evidence (no paraphrasing).\n\nIMPORTANT STRUCTURAL RULES:\n- contract_manager must contain ONLY a 'name' field. Do NOT include phone or any other fields.\n- vendor must contain ONLY 'name', 'phone', and 'contact_name' fields. Do NOT include tax_id or any other fields.\n- legal_signature must contain ONLY a 'name' field. Do NOT include date or any other fields.\n- signatures must contain ONLY 'division_director' and 'cio' fields. Map any FBO/admin signer to 'cio' if no CIO is present.\n- dataSharingPresent, dataTypes, dataCategorySummary, dataClassificationSummary, and dataSharingPages must ALL be objects with a 'type' field, NOT plain strings.\n\nBe precise, consistent, and evidence-based.\n\nReturn your response as a single valid JSON object only. No markdown, no explanation, no preamble."
+                            },
+                            {
+                                "role": "user",
+                                "content": "@{body('Chunk_text')?['value'][0]}"
+                            }
+                        ],
+                        "agentModelType": "MicrosoftFoundry",
+                        "agentModelSettings": {
+                            "agentHistoryReductionSettings": {
+                                "agentHistoryReductionType": "maximumTokenCountReduction",
+                                "maximumTokenCount": 1000000
+                            },
+                            "deploymentModelProperties": {
+                                "name": "gpt-5.1",
+                                "format": "OpenAI",
+                                "version": "2025-11-13"
+                            }
+                        }
+                    },
+                    "modelConfigurations": {
+                        "model1": {
+                            "referenceName": "agent"
+                        }
+                    }
+                },
+                "tools": {},
+                "runAfter": {
+                    "Chunk_text": [
+                        "SUCCEEDED"
+                    ]
+                },
+                "limit": {
+                    "count": 100
+                }
+            },
+            "Parse_Agent_JSON": {
+                "type": "Compose",
+                "inputs": "@json(outputs('Agent_Agreements')?['lastAssistantMessage'])",
+                "runAfter": {
+                    "Agent_Agreements": [
+                        "SUCCEEDED"
+                    ]
+                }
+            },
+            "Normalize_Agent_Output": {
+                "type": "Compose",
+                "inputs": {
+                    "type": "@{outputs('Parse_Agent_JSON')?['type']}",
+                    "contract_number": "@{outputs('Parse_Agent_JSON')?['contract_number']}",
+                    "contract_manager": {
+                        "name": "@{outputs('Parse_Agent_JSON')?['contract_manager']?['name']}"
+                    },
+                    "date": "@{outputs('Parse_Agent_JSON')?['date']}",
+                    "division_office": "@{outputs('Parse_Agent_JSON')?['division_office']}",
+                    "financial_type": "@{outputs('Parse_Agent_JSON')?['financial_type']}",
+                    "procurement_method": "@{outputs('Parse_Agent_JSON')?['procurement_method']}",
+                    "project_title": "@{outputs('Parse_Agent_JSON')?['project_title']}",
+                    "original_contract_amount": "@{outputs('Parse_Agent_JSON')?['original_contract_amount']}",
+                    "increase_amount": "@{outputs('Parse_Agent_JSON')?['increase_amount']}",
+                    "decrease_amount": "@{outputs('Parse_Agent_JSON')?['decrease_amount']}",
+                    "revised_contract_amount": "@{outputs('Parse_Agent_JSON')?['revised_contract_amount']}",
+                    "contract_begin_date": "@{outputs('Parse_Agent_JSON')?['contract_begin_date']}",
+                    "original_end_date": "@{outputs('Parse_Agent_JSON')?['original_end_date']}",
+                    "new_end_date": "@{outputs('Parse_Agent_JSON')?['new_end_date']}",
+                    "vendor": {
+                        "name": "@{outputs('Parse_Agent_JSON')?['vendor']?['name']}",
+                        "phone": "@{outputs('Parse_Agent_JSON')?['vendor']?['phone']}",
+                        "contact_name": "@{outputs('Parse_Agent_JSON')?['vendor']?['contact_name']}"
+                    },
+                    "cost_price_analysis_required": "@{outputs('Parse_Agent_JSON')?['cost_price_analysis_required']}",
+                    "risk_assessment_required": "@{outputs('Parse_Agent_JSON')?['risk_assessment_required']}",
+                    "signatures": {
+                        "division_director": {
+                            "name": "@{outputs('Parse_Agent_JSON')?['signatures']?['division_director']?['name']}",
+                            "date": "@{outputs('Parse_Agent_JSON')?['signatures']?['division_director']?['date']}"
+                        },
+                        "cio": {
+                            "name": "@{coalesce(outputs('Parse_Agent_JSON')?['signatures']?['cio']?['name'], outputs('Parse_Agent_JSON')?['signatures']?['fbo_contract_admin']?['name'])}",
+                            "date": "@{coalesce(outputs('Parse_Agent_JSON')?['signatures']?['cio']?['date'], outputs('Parse_Agent_JSON')?['signatures']?['fbo_contract_admin']?['date'])}"
+                        }
+                    },
+                    "legal_signature": {
+                        "name": "@{outputs('Parse_Agent_JSON')?['legal_signature']?['name']}"
+                    },
+                    "execution_dates": {
+                        "date_sent_to_vendor": "@{outputs('Parse_Agent_JSON')?['execution_dates']?['date_sent_to_vendor']}",
+                        "date_received_from_vendor": "@{outputs('Parse_Agent_JSON')?['execution_dates']?['date_received_from_vendor']}"
+                    },
+                    "executive_director_signature": {
+                        "name": "@{outputs('Parse_Agent_JSON')?['executive_director_signature']?['name']}",
+                        "execution_date": "@{outputs('Parse_Agent_JSON')?['executive_director_signature']?['execution_date']}"
+                    },
+                    "dataSharingPresent": {
+                        "type": "@{if(equals(string(outputs('Parse_Agent_JSON')?['dataSharingPresent']), 'No'), 'No', if(equals(string(outputs('Parse_Agent_JSON')?['dataSharingPresent']), 'Yes'), 'Yes', outputs('Parse_Agent_JSON')?['dataSharingPresent']?['type']))}"
+                    },
+                    "dataTypes": {
+                        "type": "@{if(equals(outputs('Parse_Agent_JSON')?['dataTypes'], null), '', if(startsWith(string(outputs('Parse_Agent_JSON')?['dataTypes']), '{'), outputs('Parse_Agent_JSON')?['dataTypes']?['type'], string(outputs('Parse_Agent_JSON')?['dataTypes'])))}"
+                    },
+                    "dataCategorySummary": {
+                        "type": "@{if(equals(outputs('Parse_Agent_JSON')?['dataCategorySummary'], null), '', if(startsWith(string(outputs('Parse_Agent_JSON')?['dataCategorySummary']), '{'), outputs('Parse_Agent_JSON')?['dataCategorySummary']?['type'], string(outputs('Parse_Agent_JSON')?['dataCategorySummary'])))}"
+                    },
+                    "dataClassificationSummary": {
+                        "type": "@{if(equals(outputs('Parse_Agent_JSON')?['dataClassificationSummary'], null), '', if(startsWith(string(outputs('Parse_Agent_JSON')?['dataClassificationSummary']), '{'), outputs('Parse_Agent_JSON')?['dataClassificationSummary']?['type'], string(outputs('Parse_Agent_JSON')?['dataClassificationSummary'])))}",
+                        "exactQuotedText": "@{if(equals(outputs('Parse_Agent_JSON')?['dataClassificationSummary'], null), '', if(startsWith(string(outputs('Parse_Agent_JSON')?['dataClassificationSummary']), '{'), outputs('Parse_Agent_JSON')?['dataClassificationSummary']?['exactQuotedText'], coalesce(outputs('Parse_Agent_JSON')?['exactQuotedText'], '')))}"
+                    },
+                    "dataSharingPages": {
+                        "type": "@{if(equals(outputs('Parse_Agent_JSON')?['dataSharingPages'], null), '', if(startsWith(string(outputs('Parse_Agent_JSON')?['dataSharingPages']), '{'), outputs('Parse_Agent_JSON')?['dataSharingPages']?['type'], string(outputs('Parse_Agent_JSON')?['dataSharingPages'])))}",
+                        "reference": "@{if(equals(outputs('Parse_Agent_JSON')?['dataSharingPages'], null), '', if(startsWith(string(outputs('Parse_Agent_JSON')?['dataSharingPages']), '{'), outputs('Parse_Agent_JSON')?['dataSharingPages']?['reference'], ''))}"
+                    }
+                },
+                "runAfter": {
+                    "Parse_Agent_JSON": [
+                        "SUCCEEDED"
+                    ]
+                }
+            },
+            "Parse_JSON": {
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@outputs('Normalize_Agent_Output')",
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "type": {
+                                "type": "string"
+                            },
+                            "contract_number": {
+                                "type": "string"
+                            },
+                            "contract_manager": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "name"
+                                ]
+                            },
+                            "date": {
+                                "type": "string"
+                            },
+                            "division_office": {
+                                "type": "string"
+                            },
+                            "financial_type": {
+                                "type": "string"
+                            },
+                            "procurement_method": {
+                                "type": "string"
+                            },
+                            "project_title": {
+                                "type": "string"
+                            },
+                            "original_contract_amount": {
+                                "type": [
+                                    "string",
+                                    "number",
+                                    "null"
+                                ]
+                            },
+                            "increase_amount": {
+                                "type": [
+                                    "string",
+                                    "number",
+                                    "null"
+                                ]
+                            },
+                            "decrease_amount": {
+                                "type": [
+                                    "string",
+                                    "number",
+                                    "null"
+                                ]
+                            },
+                            "revised_contract_amount": {
+                                "type": [
+                                    "string",
+                                    "number",
+                                    "null"
+                                ]
+                            },
+                            "contract_begin_date": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "original_end_date": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "new_end_date": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "vendor": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "phone": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ]
+                                    },
+                                    "contact_name": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "name"
+                                ]
+                            },
+                            "cost_price_analysis_required": {
+                                "type": "string",
+                                "enum": [
+                                    "Yes",
+                                    "No"
+                                ]
+                            },
+                            "risk_assessment_required": {
+                                "type": "string",
+                                "enum": [
+                                    "Yes",
+                                    "No"
+                                ]
+                            },
+                            "signatures": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "division_director": {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "name": {
+                                                "type": [
+                                                    "string",
+                                                    "null"
+                                                ]
+                                            },
+                                            "date": {
+                                                "type": [
+                                                    "string",
+                                                    "null"
+                                                ]
+                                            }
+                                        }
+                                    },
+                                    "cio": {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "name": {
+                                                "type": [
+                                                    "string",
+                                                    "null"
+                                                ]
+                                            },
+                                            "date": {
+                                                "type": [
+                                                    "string",
+                                                    "null"
+                                                ]
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "legal_signature": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "name": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ]
+                                    }
+                                }
+                            },
+                            "execution_dates": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "date_sent_to_vendor": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ]
+                                    },
+                                    "date_received_from_vendor": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ]
+                                    }
+                                }
+                            },
+                            "executive_director_signature": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "name": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ]
+                                    },
+                                    "execution_date": {
+                                        "type": [
+                                            "string",
+                                            "null"
+                                        ]
+                                    }
+                                }
+                            },
+                            "dataSharingPresent": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "type": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "type"
+                                ]
+                            },
+                            "dataTypes": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "type": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "type"
+                                ]
+                            },
+                            "dataCategorySummary": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "type": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "type"
+                                ]
+                            },
+                            "dataClassificationSummary": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "type": {
+                                        "type": "string"
+                                    },
+                                    "exactQuotedText": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "type"
+                                ]
+                            },
+                            "dataSharingPages": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "type": {
+                                        "type": [
+                                            "integer",
+                                            "string"
+                                        ]
+                                    },
+                                    "reference": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "type"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "type",
+                            "contract_number",
+                            "contract_manager",
+                            "date",
+                            "project_title",
+                            "vendor"
+                        ]
+                    }
+                },
+                "runAfter": {
+                    "Normalize_Agent_Output": [
+                        "SUCCEEDED"
+                    ]
+                }
+            },
+            "Create_or_update_document_(V3)": {
+                "type": "ApiConnection",
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "referenceName": "documentdb"
+                        }
+                    },
+                    "method": "post",
+                    "body": {
+                        "id": "@{coalesce(body('Parse_JSON')?['contract_number'], guid())}",
+                        "type": "@{body('Parse_JSON')?['type']}",
+                        "contract_number": "@{body('Parse_JSON')?['contract_number']}",
+                        "contract_manager": {
+                            "name": "@{body('Parse_JSON')?['contract_manager']?['name']}"
+                        },
+                        "date": "@{body('Parse_JSON')?['date']}",
+                        "division_office": "@{body('Parse_JSON')?['division_office']}",
+                        "financial_type": "@{body('Parse_JSON')?['financial_type']}",
+                        "procurement_method": "@{body('Parse_JSON')?['procurement_method']}",
+                        "project_title": "@{body('Parse_JSON')?['project_title']}",
+                        "original_contract_amount": "@{body('Parse_JSON')?['original_contract_amount']}",
+                        "increase_amount": "@{body('Parse_JSON')?['increase_amount']}",
+                        "decrease_amount": "@{body('Parse_JSON')?['decrease_amount']}",
+                        "revised_contract_amount": "@{body('Parse_JSON')?['revised_contract_amount']}",
+                        "contract_begin_date": "@{body('Parse_JSON')?['contract_begin_date']}",
+                        "original_end_date": "@{body('Parse_JSON')?['original_end_date']}",
+                        "new_end_date": "@{body('Parse_JSON')?['new_end_date']}",
+                        "vendor": {
+                            "name": "@{body('Parse_JSON')?['vendor']?['name']}",
+                            "phone": "@{body('Parse_JSON')?['vendor']?['phone']}",
+                            "contact_name": "@{body('Parse_JSON')?['vendor']?['contact_name']}"
+                        },
+                        "cost_price_analysis_required": "@{body('Parse_JSON')?['cost_price_analysis_required']}",
+                        "risk_assessment_required": "@{body('Parse_JSON')?['risk_assessment_required']}",
+                        "signatures": {
+                            "division_director": {
+                                "name": "@{body('Parse_JSON')?['signatures']?['division_director']?['name']}",
+                                "date": "@{body('Parse_JSON')?['signatures']?['division_director']?['date']}"
+                            },
+                            "cio": {
+                                "name": "@{body('Parse_JSON')?['signatures']?['cio']?['name']}",
+                                "date": "@{body('Parse_JSON')?['signatures']?['cio']?['date']}"
+                            }
+                        },
+                        "legal_signature": {
+                            "name": "@{body('Parse_JSON')?['legal_signature']?['name']}"
+                        },
+                        "execution_dates": {
+                            "date_sent_to_vendor": "@{body('Parse_JSON')?['execution_dates']?['date_sent_to_vendor']}",
+                            "date_received_from_vendor": "@{body('Parse_JSON')?['execution_dates']?['date_received_from_vendor']}"
+                        },
+                        "executive_director_signature": {
+                            "name": "@{body('Parse_JSON')?['executive_director_signature']?['name']}",
+                            "execution_date": "@{body('Parse_JSON')?['executive_director_signature']?['execution_date']}"
+                        },
+                        "dataSharingPresent": "@{body('Parse_JSON')?['dataSharingPresent']?['type']}",
+                        "dataTypes": "@{body('Parse_JSON')?['dataTypes']?['type']}",
+                        "dataCategorySummary": "@{body('Parse_JSON')?['dataCategorySummary']?['type']}",
+                        "dataClassificationSummary": "@{body('Parse_JSON')?['dataClassificationSummary']?['type']}",
+                        "dataClassificationQuotedText": "@{body('Parse_JSON')?['dataClassificationSummary']?['exactQuotedText']}",
+                        "dataSharingPages": "@{body('Parse_JSON')?['dataSharingPages']?['type']}",
+                        "dataSharingReference": "@{body('Parse_JSON')?['dataSharingPages']?['reference']}",
+                        "sourceBlob": "@{triggerBody()?['name']}",
+                        "processedAt": "@{utcNow()}"
+                    },
+                    "path": "/v2/cosmosdb/@{encodeURIComponent('AccountNameFromSettings')}/dbs/@{encodeURIComponent('documents')}/colls/@{encodeURIComponent('agreements')}/docs"
+                },
+                "runAfter": {
+                    "Parse_JSON": [
+                        "SUCCEEDED"
+                    ]
+                }
+            }
+        },
+        "outputs": {},
+        "triggers": {
+            "When_a_blob_is_added_or_updated": {
+                "type": "ServiceProvider",
+                "inputs": {
+                    "parameters": {
+                        "path": "@parameters('Blob_Path_agreements')"
+                    },
+                    "serviceProviderConfiguration": {
+                        "connectionName": "AzureBlob",
+                        "operationId": "whenABlobIsAddedOrModified",
+                        "serviceProviderId": "/serviceProviders/AzureBlob"
+                    }
+                }
+            }
+        }
+    },
+    "kind": "stateful"
+}

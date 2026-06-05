@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Agreement Content Viewer</title>
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; margin: 24px; color: #222; }
+    h1 { margin-bottom: 4px; }
+    .meta { color: #666; margin-bottom: 16px; font-size: 13px; }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+      padding: 12px 14px;
+      background: #f7f7f9;
+      border: 1px solid #e3e3e8;
+      border-radius: 6px;
+      margin-bottom: 14px;
+    }
+    .filter { display: flex; flex-direction: column; gap: 4px; }
+    .filter label { font-size: 12px; color: #555; font-weight: 600; }
+    .filter select {
+      padding: 6px 8px;
+      font-size: 13px;
+      border: 1px solid #c8c8d0;
+      border-radius: 4px;
+      min-width: 180px;
+      background: #fff;
+    }
+    .actions { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+    button {
+      padding: 7px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      background: #0a66c2;
+      color: #fff;
+      border: 1px solid #0a66c2;
+      border-radius: 4px;
+    }
+    button.secondary {
+      background: #fff;
+      color: #333;
+      border-color: #c8c8d0;
+    }
+    button:hover { filter: brightness(0.95); }
+    #status { color: #555; font-size: 13px; margin-left: 8px; }
+
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
+    th, td {
+      border: 1px solid #e0e0e6;
+      padding: 8px 10px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #f3f3f6;
+      position: sticky;
+      top: 0;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    tr:nth-child(even) td { background: #fafafa; }
+    tr.detail-row td { background: #fbfbfd !important; }
+    td.value { white-space: pre-wrap; word-break: break-word; }
+    td.field { font-family: Consolas, 'Courier New', monospace; color: #0a4; white-space: nowrap; width: 320px; }
+    td.id-cell { font-family: Consolas, 'Courier New', monospace; font-size: 12px; color: #555; }
+    .toggle-btn {
+      background: transparent;
+      color: #0a66c2;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .nested-table { margin: 6px 0; }
+    .nested-table th { background: #eef2f7; }
+
+    .error { color: #b00020; margin-top: 16px; }
+    .empty { color: #666; font-style: italic; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <h1>Agreement Content</h1>
+  <div class="meta">
+    Source: Cosmos DB &mdash; one row per document, filterable by key agreement fields.
+  </div>
+
+  <div class="toolbar">
+    <div class="filter">
+      <label for="f-dataSharingPresent">Data Sharing Present</label>
+      <select id="f-dataSharingPresent"><option value="">(all)</option></select>
+    </div>
+    <div class="filter">
+      <label for="f-division_office">Division / Office</label>
+      <select id="f-division_office"><option value="">(all)</option></select>
+    </div>
+    <div class="filter">
+      <label for="f-financial_type">Financial Type</label>
+      <select id="f-financial_type"><option value="">(all)</option></select>
+    </div>
+    <div class="filter">
+      <label for="f-original_end_date">Original End Date</label>
+      <select id="f-original_end_date"><option value="">(all)</option></select>
+    </div>
+    <div class="actions">
+      <button id="clear" class="secondary">Clear filters</button>
+      <button id="refresh">Refresh</button>
+      <span id="status"></span>
+    </div>
+  </div>
+
+  <div id="output"></div>
+
+  <script>
+    const refreshBtn = document.getElementById('refresh');
+    const clearBtn = document.getElementById('clear');
+    const output = document.getElementById('output');
+    const status = document.getElementById('status');
+
+    const FILTER_FIELDS = [
+      'dataSharingPresent',
+      'division_office',
+      'financial_type',
+      'original_end_date',
+    ];
+
+    // Columns shown in the main table (in order). Each entry maps a header
+    // label to a path inside the parsed `content` object.
+    const COLUMNS = [
+      { label: 'Contract #',           path: 'contract_number' },
+      { label: 'Project Title',        path: 'project_title' },
+      { label: 'Division / Office',    path: 'division_office' },
+      { label: 'Financial Type',       path: 'financial_type' },
+      { label: 'Data Sharing Present', path: 'dataSharingPresent' },
+      { label: 'Original End Date',    path: 'original_end_date' },
+      { label: 'Vendor',               path: 'vendor.name' },
+      { label: 'Contract Begin',       path: 'contract_begin_date' },
+    ];
+
+    let allRows = [];
+    let expanded = new Set();
+
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function isPrimitiveList(value) {
+      return Array.isArray(value)
+        && value.every(v => v === null || (typeof v !== 'object'));
+    }
+
+    function formatPrimitive(value) {
+      if (value === null || value === undefined) return '';
+      if (typeof value === 'boolean') return value ? 'true' : 'false';
+      return String(value);
+    }
+
+    // Resolve a dotted path inside an object: "vendor.name" -> obj.vendor.name.
+    function getByPath(obj, path) {
+      if (!obj || typeof obj !== 'object') return undefined;
+      return path.split('.').reduce(
+        (acc, key) => (acc && typeof acc === 'object' ? acc[key] : undefined),
+        obj
+      );
+    }
+
+    // The Logic App stores some fields as { type: "<value>" } objects rather
+    // than plain strings (see cosmos-document-template.json). Normalize so
+    // both shapes display and filter consistently.
+    function normalizeFieldValue(value) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const keys = Object.keys(value);
+        if (keys.length === 1 && 'type' in value) return formatPrimitive(value.type);
+      }
+      return formatPrimitive(value);
+    }
+
+    function humanizeField(field) {
+      return String(field)
+        .replace(/\[\d+\]/g, '')
+        .split('.')
+        .filter(Boolean)
+        .map(segment => segment
+          .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+          .replace(/[_-]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .split(' ')
+          .map(w => w ? w.charAt(0).toUpperCase() + w.slice(1) : w)
+          .join(' '))
+        .join(' ');
+    }
+
+    function flattenJson(data, parentKey = '', separator = '.') {
+      const rows = [];
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        for (const [key, value] of Object.entries(data)) {
+          const newKey = parentKey ? `${parentKey}${separator}${key}` : key;
+          rows.push(...flattenJson(value, newKey, separator));
+        }
+        return rows;
+      }
+      if (Array.isArray(data)) {
+        if (isPrimitiveList(data)) {
+          rows.push([parentKey, data.map(formatPrimitive).join('; ')]);
+          return rows;
+        }
+        data.forEach((item, index) => {
+          rows.push(...flattenJson(item, `${parentKey}[${index}]`, separator));
+        });
+        return rows;
+      }
+      rows.push([parentKey, formatPrimitive(data)]);
+      return rows;
+    }
+
+    // Parse the raw `content` field which may be: an object, a JSON string,
+    // or a JSON string wrapped in ```json ... ``` markdown fences.
+    function parseContent(content) {
+      if (content == null) return null;
+      if (typeof content === 'object') return content;
+      if (typeof content === 'string') {
+        const trimmed = content.trim();
+        const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+        const candidate = fenced ? fenced[1] : trimmed;
+        try { return JSON.parse(candidate); } catch { return content; }
+      }
+      return content;
+    }
+
+    function renderDetail(parsed) {
+      if (parsed === null || typeof parsed !== 'object') {
+        return `<div>${escapeHtml(formatPrimitive(parsed))}</div>`;
+      }
+      const rows = flattenJson(parsed);
+      if (!rows.length) return '<div class="empty">(empty)</div>';
+      const body = rows.map(([field, value]) => `
+        <tr>
+          <td class="field">${escapeHtml(humanizeField(field))}</td>
+          <td class="value">${escapeHtml(value)}</td>
+        </tr>`).join('');
+      return `
+        <table class="nested-table">
+          <thead><tr><th>Field</th><th>Value</th></tr></thead>
+          <tbody>${body}</tbody>
+        </table>`;
+    }
+
+    function uniqueSorted(values) {
+      const set = new Set();
+      for (const v of values) {
+        const s = (v ?? '').toString().trim();
+        if (s !== '') set.add(s);
+      }
+      return Array.from(set).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true })
+      );
+    }
+
+    function populateFilters() {
+      for (const field of FILTER_FIELDS) {
+        const select = document.getElementById(`f-${field}`);
+        const current = select.value;
+        const values = uniqueSorted(
+          allRows.map(r => normalizeFieldValue(getByPath(r.content, field)))
+        );
+        select.innerHTML =
+          '<option value="">(all)</option>' +
+          values
+            .map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`)
+            .join('');
+        if (values.includes(current)) select.value = current;
+      }
+    }
+
+    function getActiveFilters() {
+      const active = {};
+      for (const field of FILTER_FIELDS) {
+        const v = document.getElementById(`f-${field}`).value;
+        if (v) active[field] = v;
+      }
+      return active;
+    }
+
+    function applyFilters(rows) {
+      const filters = getActiveFilters();
+      const entries = Object.entries(filters);
+      if (!entries.length) return rows;
+      return rows.filter(r =>
+        entries.every(([field, expected]) =>
+          normalizeFieldValue(getByPath(r.content, field)) === expected
+        )
+      );
+    }
+
+    function renderTable() {
+      const rows = applyFilters(allRows);
+      if (!rows.length) {
+        output.innerHTML =
+          '<div class="empty">No documents match the current filters.</div>';
+        return;
+      }
+
+      const header = `
+        <tr>
+          <th style="width:36px"></th>
+          <th>Document ID</th>
+          ${COLUMNS.map(c => `<th>${escapeHtml(c.label)}</th>`).join('')}
+        </tr>`;
+
+      const body = rows.map(r => {
+        const isOpen = expanded.has(r.id);
+        const cells = COLUMNS.map(c => {
+          const raw = getByPath(r.content, c.path);
+          return `<td class="value">${escapeHtml(normalizeFieldValue(raw))}</td>`;
+        }).join('');
+        const main = `
+          <tr>
+            <td>
+              <button class="toggle-btn" data-id="${escapeHtml(r.id)}" title="Show full content">
+                ${isOpen ? '&#9660;' : '&#9654;'}
+              </button>
+            </td>
+            <td class="id-cell">${escapeHtml(r.id)}</td>
+            ${cells}
+          </tr>`;
+        const detail = isOpen
+          ? `<tr class="detail-row">
+               <td></td>
+               <td colspan="${COLUMNS.length + 1}">${renderDetail(r.content)}</td>
+             </tr>`
+          : '';
+        return main + detail;
+      }).join('');
+
+      output.innerHTML = `
+        <div class="meta">${rows.length} of ${allRows.length} document(s)</div>
+        <table>
+          <thead>${header}</thead>
+          <tbody>${body}</tbody>
+        </table>`;
+
+      output.querySelectorAll('.toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-id');
+          if (expanded.has(id)) expanded.delete(id);
+          else expanded.add(id);
+          renderTable();
+        });
+      });
+    }
+
+    async function load() {
+      status.textContent = ' Loading…';
+      output.innerHTML = '';
+      try {
+        const res = await fetch('/api/items');
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        const items = await res.json();
+        // Each document's fields live at the top level, so the document itself
+        // is the content. Parse in case a value arrives as a JSON string.
+        allRows = items.map(it => ({
+          id: it.id,
+          content: parseContent(it),
+        }));
+        status.textContent = ` Loaded ${allRows.length} document(s)`;
+        populateFilters();
+        renderTable();
+      } catch (err) {
+        status.textContent = '';
+        output.innerHTML =
+          `<div class="error">Failed to load: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    FILTER_FIELDS.forEach(field => {
+      document.getElementById(`f-${field}`).addEventListener('change', renderTable);
+    });
+    clearBtn.addEventListener('click', () => {
+      FILTER_FIELDS.forEach(f => {
+        document.getElementById(`f-${f}`).value = '';
+      });
+      renderTable();
+    });
+    refreshBtn.addEventListener('click', load);
+
+    load();
+  </script>
+</body>
+</html>

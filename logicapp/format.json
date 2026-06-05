@@ -1,0 +1,63 @@
+{
+  "type": "New",
+  "contract_number": "24305",
+  "contract_manager": {
+    "name": "Sean Singletary"
+  },
+  "date": "05/23/2025",
+  "division_office": "LE",
+  "financial_type": "Non-Financial",
+  "procurement_method": "33-No Cost Procurement",
+  "project_title": "Lead Contract Agreement for Interagency Information Sharing Of Vendor Personnel Security Screening Requirements",
+  "original_contract_amount": "$0",
+  "increase_amount": null,
+  "decrease_amount": null,
+  "revised_contract_amount": null,
+  "contract_begin_date": "DOE",
+  "original_end_date": "until terminated",
+  "new_end_date": null,
+  "vendor": {
+    "name": "Panama City Beach Police Dept.",
+    "phone": "(850) 233-5000",
+    "contact_name": "Capt. Jason Jones"
+  },
+  "cost_price_analysis_required": "Yes",
+  "risk_assessment_required": "No",
+  "signatures": {
+    "division_director": {
+      "name": "Randy Bowlin",
+      "date": "06/02/2025"
+    },
+    "cio": {
+      "name": "Mike Turner",
+      "date": "6/12/2025"
+    }
+  },
+  "legal_signature": {
+    "name": "Bridget McDonnell"
+  },
+  "execution_dates": {
+    "date_sent_to_vendor": "6/16/2025",
+    "date_received_from_vendor": "7/1/2025"
+  },
+  "executive_director_signature": {
+    "name": "Jessica Crawford",
+    "execution_date": "6/13/2025"
+  },
+  "dataSharingPresent": {
+    "type": "string"
+  },
+  "dataTypes": {
+    "type": "Habitat assessment / field survey (non-sensitive)"
+  },
+  "dataCategorySummary": {
+    "type": "Wildlife"
+  },
+  "dataClassificationSummary": {
+    "type": "Confidential",
+    "exactQuotedText": "The COMMISSION will provide the LANDOWNER with the results of any habitat assessment surveys and vegetative monitoring data upon written request from the LANDOWNER."
+  },
+  "dataSharingPages": {
+    "type": 2,"reference": "Camera monitoring and data collection consent"
+  }
+}

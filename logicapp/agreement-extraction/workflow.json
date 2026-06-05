@@ -1,0 +1,117 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "actions": {
+            "Agent_Loop": {
+                "type": "Agent",
+                "inputs": {
+                    "parameters": {
+                        "deploymentId": "gpt-4.1",
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "Extract this information from the document uploaded: \nAgreement identifier / number\nAgreement title\nThird party / other party (supports multiple parties)\nExecution date (if available)\nEnd date (if available)\nData sharing present (Yes/No)\nData type(s) involved\nPage number(s) where data sharing is referenced\n-----------------------------------\nUse the Read blob Tool to get the document."
+                            }
+                        ],
+                        "agentModelType": "AzureOpenAI",
+                        "agentModelSettings": {
+                            "agentHistoryReductionSettings": {
+                                "agentHistoryReductionType": "maximumTokenCountReduction",
+                                "maximumTokenCount": 128000
+                            },
+                            "deploymentModelProperties": {
+                                "name": "gpt-4.1",
+                                "format": "OpenAI",
+                                "version": "2025-04-14"
+                            }
+                        }
+                    },
+                    "modelConfigurations": {
+                        "model1": {
+                            "referenceName": "agent"
+                        }
+                    }
+                },
+                "tools": {
+                    "Read_blob_Tool": {
+                        "actions": {
+                            "Read_blob_content": {
+                                "type": "ServiceProvider",
+                                "inputs": {
+                                    "parameters": {
+                                        "containerName": "@parameters('Blob_Path_cdb_2doc_2indexer_2blob')",
+                                        "blobName": "@triggerBody()?['name']"
+                                    },
+                                    "serviceProviderConfiguration": {
+                                        "connectionName": "blob-connection_cdb_2doc_2indexer_2blob",
+                                        "operationId": "readBlob",
+                                        "serviceProviderId": "/serviceProviders/AzureBlob"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Read blob content"
+                    }
+                },
+                "runAfter": {},
+                "limit": {
+                    "count": 100
+                }
+            },
+            "Compose": {
+                "type": "Compose",
+                "inputs": "@outputs('Agent_Loop')?['lastAssistantMessage']",
+                "runAfter": {
+                    "Agent_Loop": [
+                        "SUCCEEDED"
+                    ]
+                }
+            },
+            "Create_or_update_document": {
+                "type": "ServiceProvider",
+                "inputs": {
+                    "parameters": {
+                        "databaseId": "documents",
+                        "containerId": "agreements",
+                        "isUpsert": true,
+                        "document": {
+                            "id": "@{guid()}",
+                            "blobName": "@{triggerBody()?['name']}",
+                            "extractedAt": "@{utcNow()}",
+                            "extraction": "@outputs('Compose')"
+                        }
+                    },
+                    "serviceProviderConfiguration": {
+                        "connectionName": "cosmosdb-connection",
+                        "operationId": "createOrUpdateDocument",
+                        "serviceProviderId": "/serviceProviders/AzureCosmosDB"
+                    }
+                },
+                "runAfter": {
+                    "Compose": [
+                        "SUCCEEDED"
+                    ]
+                }
+            }
+        },
+        "contentVersion": "1.0.0.0",
+        "outputs": {},
+        "triggers": {
+            "When_a_blob_is_added_or_updated": {
+                "type": "ServiceProvider",
+                "inputs": {
+                    "parameters": {
+                        "path": "@parameters('Blob_Path_cdb_2doc_2indexer_2blob')"
+                    },
+                    "serviceProviderConfiguration": {
+                        "connectionName": "blob-connection_cdb_2doc_2indexer_2blob",
+                        "operationId": "whenABlobIsAddedOrModified",
+                        "serviceProviderId": "/serviceProviders/AzureBlob"
+                    }
+                },
+                "conditions": []
+            }
+        }
+    },
+    "kind": "stateful"
+}

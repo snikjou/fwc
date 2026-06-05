@@ -1,0 +1,501 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2019-05-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+      "$connections": {
+        "type": "Object",
+        "defaultValue": {}
+      },
+      "blobContainer": {
+        "type": "String",
+        "defaultValue": "agreements"
+      },
+      "cosmosDatabase": {
+        "type": "String",
+        "defaultValue": "contracts"
+      },
+      "cosmosAccount": {
+        "type": "String",
+        "defaultValue": "<your-cosmos-account-name>"
+      },
+      "cosmosContainer": {
+        "type": "String",
+        "defaultValue": "agreementMetadata"
+      },
+      "docIntelEndpoint": {
+        "type": "String",
+        "defaultValue": "https://<your-doc-intel-resource>.cognitiveservices.azure.com"
+      },
+      "openAiEndpoint": {
+        "type": "String",
+        "defaultValue": "https://<your-openai-resource>.openai.azure.com"
+      },
+      "openAiDeployment": {
+        "type": "String",
+        "defaultValue": "gpt-4.1-mini"
+      },
+      "pollDelaySeconds": {
+        "type": "Int",
+        "defaultValue": 5
+      }
+    },
+    "triggers": {
+      "When_blob_is_added_or_updated": {
+        "type": "ApiConnection",
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 1
+        },
+        "inputs": {
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['azureblob']['connectionId']"
+            }
+          },
+          "method": "get",
+          "path": "/v2/datasets/default/triggers/batch/onupdatedfile",
+          "queries": {
+            "folderId": "/@{parameters('blobContainer')}",
+            "checkBothCreatedAndModifiedDateTime": true,
+            "maxFileCount": 1
+          }
+        },
+        "splitOn": "@triggerBody()"
+      }
+    },
+    "actions": {
+      "Get_blob_content": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['azureblob']['connectionId']"
+            }
+          },
+          "method": "get",
+          "path": "/v2/datasets/default/files/@{encodeURIComponent(triggerBody()?['Path'])}/content"
+        },
+        "runAfter": {}
+      },
+      "Initialize_candidates": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "candidateExtractions",
+              "type": "array",
+              "value": []
+            }
+          ]
+        },
+        "runAfter": {
+          "Get_blob_content": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Analyze_document_submit": {
+        "type": "Http",
+        "inputs": {
+          "uri": "@{concat(parameters('docIntelEndpoint'), '/documentintelligence/documentModels/prebuilt-read:analyze?api-version=2024-11-30')}",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/octet-stream"
+          },
+          "body": "@base64ToBinary(body('Get_blob_content')?['$content'])",
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "audience": "https://cognitiveservices.azure.com"
+          }
+        },
+        "runAfter": {
+          "Initialize_candidates": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Initialize_docintel_status": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "docIntelStatus",
+              "type": "string",
+              "value": "running"
+            }
+          ]
+        },
+        "runAfter": {
+          "Analyze_document_submit": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Initialize_analyze_result": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "docIntelResult",
+              "type": "object",
+              "value": {}
+            }
+          ]
+        },
+        "runAfter": {
+          "Initialize_docintel_status": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Wait_for_document_analysis": {
+        "type": "Until",
+        "expression": "@equals(variables('docIntelStatus'), 'succeeded')",
+        "limit": {
+          "count": 30,
+          "timeout": "PT10M"
+        },
+        "actions": {
+          "Delay_before_poll": {
+            "type": "Wait",
+            "inputs": {
+              "interval": {
+                "count": "@parameters('pollDelaySeconds')",
+                "unit": "Second"
+              }
+            }
+          },
+          "Get_document_analysis_result": {
+            "type": "Http",
+            "inputs": {
+              "uri": "@{outputs('Analyze_document_submit')?['headers']?['Operation-Location']}",
+              "method": "GET",
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://cognitiveservices.azure.com"
+              }
+            },
+            "runAfter": {
+              "Delay_before_poll": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Set_docintel_status": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "docIntelStatus",
+              "value": "@toLower(body('Get_document_analysis_result')?['status'])"
+            },
+            "runAfter": {
+              "Get_document_analysis_result": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Set_docintel_result": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "docIntelResult",
+              "value": "@body('Get_document_analysis_result')"
+            },
+            "runAfter": {
+              "Set_docintel_status": [
+                "Succeeded"
+              ]
+            }
+          }
+        },
+        "runAfter": {
+          "Initialize_analyze_result": [
+            "Succeeded"
+          ]
+        }
+      },
+      "For_each_page_agent_loop": {
+        "type": "Foreach",
+        "foreach": "@variables('docIntelResult')?['analyzeResult']?['pages']",
+        "runtimeConfiguration": {
+          "concurrency": {
+            "repetitions": 1
+          }
+        },
+        "actions": {
+          "Select_page_lines": {
+            "type": "Select",
+            "inputs": {
+              "from": "@item()?['lines']",
+              "select": "@item()?['content']"
+            }
+          },
+          "Compose_page_text": {
+            "type": "Compose",
+            "inputs": "@join(body('Select_page_lines'), '\n')",
+            "runAfter": {
+              "Select_page_lines": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Extract_fields_from_page_with_agent": {
+            "type": "Http",
+            "inputs": {
+              "uri": "@{concat(parameters('openAiEndpoint'), '/openai/deployments/', parameters('openAiDeployment'), '/chat/completions?api-version=2024-08-01-preview')}",
+              "method": "POST",
+              "headers": {
+                "Content-Type": "application/json"
+              },
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://cognitiveservices.azure.com"
+              },
+              "body": {
+                "messages": [
+                  {
+                    "role": "system",
+                    "content": "You extract agreement metadata. Return only JSON with keys: agreementIdentifier, agreementTitle, parties (array), executionDate, endDate, dataSharingPresent (Yes/No), dataTypes (array), dataSharingPageNumbers (array<int>). Keep unknown values null or empty arrays."
+                  },
+                  {
+                    "role": "user",
+                    "content": "Page number: @{item()?['pageNumber']}\\n\\nPage content:\\n@{outputs('Compose_page_text')}"
+                  }
+                ],
+                "temperature": 0,
+                "response_format": {
+                  "type": "json_object"
+                }
+              }
+            },
+            "runAfter": {
+              "Compose_page_text": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Parse_agent_page_result": {
+            "type": "ParseJson",
+            "inputs": {
+              "content": "@json(body('Extract_fields_from_page_with_agent')?['choices']?[0]?['message']?['content'])",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agreementIdentifier": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "agreementTitle": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "parties": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "executionDate": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "endDate": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dataSharingPresent": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dataTypes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "dataSharingPageNumbers": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "required": [
+                  "parties",
+                  "dataTypes",
+                  "dataSharingPageNumbers"
+                ]
+              }
+            },
+            "runAfter": {
+              "Extract_fields_from_page_with_agent": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Append_page_candidate": {
+            "type": "AppendToArrayVariable",
+            "inputs": {
+              "name": "candidateExtractions",
+              "value": "@body('Parse_agent_page_result')"
+            },
+            "runAfter": {
+              "Parse_agent_page_result": [
+                "Succeeded"
+              ]
+            }
+          }
+        },
+        "runAfter": {
+          "Wait_for_document_analysis": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Consolidate_candidates_with_agent": {
+        "type": "Http",
+        "inputs": {
+          "uri": "@{concat(parameters('openAiEndpoint'), '/openai/deployments/', parameters('openAiDeployment'), '/chat/completions?api-version=2024-08-01-preview')}",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "audience": "https://cognitiveservices.azure.com"
+          },
+          "body": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "Merge page-level extraction results for one agreement. Return only JSON with keys: agreementIdentifier, agreementTitle, parties (unique array), executionDate, endDate, dataSharingPresent (Yes/No), dataTypes (unique array), dataSharingPageNumbers (unique sorted array<int>)."
+              },
+              {
+                "role": "user",
+                "content": "Blob path: @{triggerBody()?['Path']}\\nCandidate extraction JSON array:\\n@{string(variables('candidateExtractions'))}"
+              }
+            ],
+            "temperature": 0,
+            "response_format": {
+              "type": "json_object"
+            }
+          }
+        },
+        "runAfter": {
+          "For_each_page_agent_loop": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Parse_consolidated_result": {
+        "type": "ParseJson",
+        "inputs": {
+          "content": "@json(body('Consolidate_candidates_with_agent')?['choices']?[0]?['message']?['content'])",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "agreementIdentifier": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "agreementTitle": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "parties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "executionDate": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endDate": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dataSharingPresent": {
+                "type": "string"
+              },
+              "dataTypes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "dataSharingPageNumbers": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "parties",
+              "dataSharingPresent",
+              "dataTypes",
+              "dataSharingPageNumbers"
+            ]
+          }
+        },
+        "runAfter": {
+          "Consolidate_candidates_with_agent": [
+            "Succeeded"
+          ]
+        }
+      },
+      "Upsert_to_Cosmos_DB": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['azurecosmosdb']['connectionId']"
+            }
+          },
+          "method": "post",
+          "path": "/v2/cosmosdb/@{encodeURIComponent(parameters('cosmosAccount'))}/dbs/@{encodeURIComponent(parameters('cosmosDatabase'))}/colls/@{encodeURIComponent(parameters('cosmosContainer'))}/docs",
+          "body": {
+            "id": "@{coalesce(body('Parse_consolidated_result')?['agreementIdentifier'], triggerBody()?['Name'])}",
+            "agreementIdentifier": "@{body('Parse_consolidated_result')?['agreementIdentifier']}",
+            "agreementTitle": "@{body('Parse_consolidated_result')?['agreementTitle']}",
+            "parties": "@{body('Parse_consolidated_result')?['parties']}",
+            "executionDate": "@{body('Parse_consolidated_result')?['executionDate']}",
+            "endDate": "@{body('Parse_consolidated_result')?['endDate']}",
+            "dataSharingPresent": "@{body('Parse_consolidated_result')?['dataSharingPresent']}",
+            "dataTypes": "@{body('Parse_consolidated_result')?['dataTypes']}",
+            "dataSharingPageNumbers": "@{body('Parse_consolidated_result')?['dataSharingPageNumbers']}",
+            "sourceBlobPath": "@{triggerBody()?['Path']}",
+            "sourceBlobLastModified": "@{triggerBody()?['LastModified']}",
+            "ingestedAtUtc": "@{utcNow()}"
+          }
+        },
+        "runAfter": {
+          "Parse_consolidated_result": [
+            "Succeeded"
+          ]
+        }
+      }
+    },
+    "outputs": {}
+  },
+  "kind": "Stateful"
+}

@@ -1,0 +1,26 @@
+{
+  "managedApiConnections": {},
+  "serviceProviderConnections": {
+    "cosmosdb-connection": {
+      "displayName": "cosmosdb-connection",
+      "parameterValues": {
+        "connectionString": "AccountEndpoint=https://agreementscosmosdb2.documents.azure.com:443/;AccountKey=@appsetting('CosmosDB_Key');"
+      },
+      "serviceProvider": {
+        "id": "/serviceProviders/AzureCosmosDB"
+      }
+    },
+    "blob-connection_cdb_2doc_2indexer_2blob": {
+      "displayName": "blob-connection_cdb_2doc_2indexer_2blob",
+      "parameterValues": {
+        "authProvider": {
+          "Type": "ManagedServiceIdentity"
+        },
+        "blobStorageEndpoint": "@appsetting('AzureWebJobsStorage__blobServiceUri')"
+      },
+      "serviceProvider": {
+        "id": "/serviceProviders/AzureBlob"
+      }
+    }
+  }
+}
