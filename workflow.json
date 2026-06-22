@@ -8,7 +8,7 @@
                 "inputs": {
                     "parameters": {
                         "containerName": "@parameters('Blob_Path_agreements')",
-                        "blobName": "@triggerBody()?['name']"
+                        "blobName": "@triggerBody()?['Name']"
                     },
                     "serviceProviderConfiguration": {
                         "connectionName": "AzureBlob",
@@ -543,7 +543,7 @@
                         "dataClassificationQuotedText": "@{body('Parse_JSON')?['dataClassificationSummary']?['exactQuotedText']}",
                         "dataSharingPages": "@{body('Parse_JSON')?['dataSharingPages']?['type']}",
                         "dataSharingReference": "@{body('Parse_JSON')?['dataSharingPages']?['reference']}",
-                        "sourceBlob": "@{triggerBody()?['name']}",
+                        "sourceBlob": "",
                         "processedAt": "@{utcNow()}"
                     },
                     "path": "/v2/cosmosdb/@{encodeURIComponent('AccountNameFromSettings')}/dbs/@{encodeURIComponent('documents')}/colls/@{encodeURIComponent('agreements')}/docs"
@@ -557,17 +557,29 @@
         },
         "outputs": {},
         "triggers": {
-            "When_a_blob_is_added_or_updated": {
-                "type": "ServiceProvider",
+            "When_a_blob_is_added_or_modified_(properties_only)_(V2)": {
+                "type": "ApiConnection",
                 "inputs": {
-                    "parameters": {
-                        "path": "@parameters('Blob_Path_agreements')"
+                    "host": {
+                        "connection": {
+                            "referenceName": "azureblob-1"
+                        }
                     },
-                    "serviceProviderConfiguration": {
-                        "connectionName": "AzureBlob",
-                        "operationId": "whenABlobIsAddedOrModified",
-                        "serviceProviderId": "/serviceProviders/AzureBlob"
+                    "method": "get",
+                    "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('AccountNameFromSettings'))}/triggers/batch/onupdatedfile",
+                    "queries": {
+                        "folderId": "JTJmYWdyZWVtZW50cw==",
+                        "maxFileCount": 1,
+                        "checkBothCreatedAndModifiedDateTime": false
                     }
+                },
+                "recurrence": {
+                    "interval": 1,
+                    "frequency": "Minute"
+                },
+                "splitOn": "@triggerBody()",
+                "metadata": {
+                    "JTJmYWdyZWVtZW50cw==": "/agreements"
                 }
             }
         }
